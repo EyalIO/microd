@@ -1,14 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS -Wall #-}
+module Parser where
+
+import           AST
 import           Control.Applicative
+import qualified Data.Attoparsec.ByteString.Char8 as P
 import           Data.Attoparsec.ByteString.Char8 hiding (sepBy)
 import           Data.ByteString.Char8 (ByteString)
-import qualified Data.Attoparsec.ByteString.Char8 as P
-import           Data.Scientific (Scientific)
 import           Data.Char (isAlphaNum)
-
-data Type = TInt | TVoid
-    deriving Show
 
 guardChar :: String -> (Char -> Bool) -> Parser ()
 guardChar msg p = do
@@ -31,41 +30,17 @@ parseType =
 inRange :: Ord a => a -> a -> a -> Bool
 inRange low hi x = low <= x && x <= hi
 
-type Ident = String
-
 parseIdent :: Parser Ident
 parseIdent =
     (:)
     <$> satisfy (`elem` ['a'..'z'] ++ ['A'..'Z'] ++ "_")
     <*> many1 (satisfy isAlpha_ascii)
 
-data Param = Param
-    { paramType :: Type
-    , paramName :: Ident
-    } deriving Show
-
 noise :: Parser ()
 noise = skipSpace
 
 parseParam :: Parser Param
 parseParam = Param <$> (parseType <* noise) <*> parseIdent
-
-data InfixOp
-    = InfixAdd
-    | InfixSub
-    | InfixMul
-    | InfixConcat
-    deriving Show
-
-data Expr
-    = ExprLiteralNum Scientific
-    | ExprVar Ident
-    | ExprGetAttr Expr Ident
-    | ExprParens Expr
-    | ExprAssign Expr Expr
-    | ExprFuncall Expr [Expr]
-    | ExprInfix Expr InfixOp Expr
-    deriving Show
 
 parseExpr :: Parser Expr
 parseExpr = parseAssign
@@ -135,14 +110,6 @@ parseTerminal =
                 <|> (ExprGetAttr e <$> (char '.' *> parseIdent) >>= postfix)
                 <|> pure e
 
-data Stmt
-    = StmtRet Expr
-    | StmtIf Expr Stmt (Maybe Stmt)
-    | StmtExpr Expr
-    | StmtBlock [Stmt]
-    --  | StmtDecl Decl
-    deriving Show
-
 parseBlock :: Parser [Stmt]
 parseBlock =
     char '{' *> noise *>
@@ -158,13 +125,6 @@ parseStmt =
             <*> (optional (noise *> keyword "else" *> parseStmt)))
     <|> (StmtBlock <$> parseBlock)
 
-data FuncDecl = FuncDecl
-    { funcRetType :: Type
-    , funcIdent :: Ident
-    , funcParams :: [Param]
-    , funcBody :: [Stmt]
-    } deriving Show
-
 parseFuncDecl :: Parser FuncDecl
 parseFuncDecl =
     FuncDecl
@@ -173,20 +133,8 @@ parseFuncDecl =
     <*> (openParen *> (parseParam `sepBy` char ',') <* closeParen) <* noise
     <*> parseBlock
 
-data Decl
-    = ASTFuncDecl FuncDecl
-    deriving Show
-
 parseDecl :: Parser Decl
-parseDecl = ASTFuncDecl <$> parseFuncDecl
-
-data Module = Module
-    { astModuleName :: String
-    , astDecls :: [Decl]
-    } deriving Show
-
-test :: ByteString
-test = "module Foo; int foo() { return 5; }"
+parseDecl = DeclFunc <$> parseFuncDecl
 
 parseModule :: Parser Module
 parseModule =
