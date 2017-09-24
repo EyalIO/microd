@@ -1,8 +1,9 @@
 {-# OPTIONS -Wall #-}
-{-# LANGUAGE TemplateHaskell, LambdaCase, ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell, LambdaCase, ScopedTypeVariables, FlexibleContexts #-}
 module CTFE where
 
 import AST
+import Control.Applicative
 import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -12,6 +13,7 @@ import Data.ByteString.Char8 (ByteString)
 import Data.Foldable (traverse_)
 import Data.IORef
 import Data.Map
+import Data.Monoid
 import Data.Scientific
 import Parser (parseExpr)
 
@@ -33,7 +35,8 @@ data DVal
     | Void
 
 data Scope = Scope
-    { _scopeParams :: Map Ident (IORef DRVal)
+    { _scopeCTParams :: Map Ident (IORef DRVal)
+    , _scopeRTParams :: Map Ident (IORef DRVal)
     }
 makeLenses ''Scope
 
@@ -44,7 +47,7 @@ showDRVal (DNum v) = show v
 showDRVal (DBool b) = show b
 showDRVal (DString s) = show s
 
-showDVal :: DVal -> Interpret String
+showDVal :: MonadIO m => DVal -> m String
 showDVal (RValue v) = pure (showDRVal v)
 showDVal (LValue ref) = liftIO (readIORef ref) <&> showDRVal
 showDVal (Func f) = pure (show f)
@@ -56,7 +59,7 @@ interpret (Module _ decls) =
         let CollectEnv funcs pragmaMsgs =
                 mapM_ collectDecl decls `execState` CollectEnv mempty []
         _ <- mapM_ (\expr -> interpretExpr expr >>= showDVal >>= liftIO . putStrLn) (reverse pragmaMsgs)
-            & (`runReaderT` Scope mempty)
+            & (`runReaderT` Scope mempty mempty)
             & (`execStateT` funcs)
         pure ()
 
@@ -87,21 +90,31 @@ match sndName f =
         go [] (_:_) = fail ("Too many " ++ sndName)
         go (_:_) [] = fail ("Too few " ++ sndName)
 
-getDRVal :: String -> DVal -> Interpret DRVal
+getDRVal :: MonadIO m => String -> DVal -> m DRVal
 getDRVal msg =
     \case
     LValue ref -> liftIO (readIORef ref)
     RValue val -> pure val
     x -> showDVal x >>= fail . (msg ++)
 
-newScope :: [Param] -> [DVal] -> Interpret Scope
-newScope params args =
-    match "arguments" pair params args
-    <&> fromList
-    >>= (\new -> ask <&> scopeParams %~ (new `mappend`))
+newParamFromArg :: MonadIO m => Param -> DVal -> m (Ident, IORef DRVal)
+newParamFromArg (Param _type name) val =
+    getDRVal "Invalid parameter: " val >>= liftIO . newIORef <&> (,) name
+
+withScope ::
+    (MonadReader Scope f, MonadIO f) =>
+    ([Param], [DVal]) -> ([Param], [DVal]) ->
+    f a ->
+    f a
+withScope (ctParams, ctArgs) (rtParams, rtArgs) act =
+    do
+        newCTScope <- m "compile" ctParams ctArgs
+        newRTScope <- m "run"     rtParams rtArgs
+        local (\(Scope ct rt) -> Scope (newCTScope <> ct) (newRTScope <> rt)) act
     where
-        pair (Param _type name) val =
-            getDRVal "Invalid parameter: " val >>= liftIO . newIORef <&> (,) name
+        m prefix ps as =
+            match (prefix ++ "-time argument list") newParamFromArg ps as
+            <&> fromList
 
 num2 ::
     Monad f =>
@@ -121,7 +134,7 @@ funcOp :: Monad f => InfixOp -> DRVal -> DRVal -> f DRVal
 funcOp InfixAdd = num2 "add" (+)
 funcOp InfixSub = num2 "subtract" (-)
 funcOp InfixMul = num2 "multiply" (*)
-funcOp InfixConcat = str2 "concat" mappend
+funcOp InfixConcat = str2 "concat" (<>)
 
 interpretInfix :: InfixOp -> DVal -> DVal -> Interpret DVal
 interpretInfix iop l r =
@@ -133,22 +146,27 @@ interpretInfix iop l r =
 
 interpretExpr :: Expr -> Interpret DVal
 interpretExpr (ExprVar var) =
-    view (scopeParams . at var)
+    (<|>)
+    <$> view (scopeRTParams . at var)
+    <*> view (scopeCTParams . at var)
     >>= \case
     Nothing ->
         use (at var)
         >>= \case
-        Nothing -> fail ("Undefined variable: " ++ show var)
+        Nothing -> do
+            ct <- view (scopeCTParams . at var)
+            fail ("Undefined variable: " ++ show var ++ " not in " ++ show (void ct))
         Just func -> pure (Func func)
     Just (ref :: IORef DRVal) -> pure (LValue ref)
-interpretExpr (ExprFuncall func args) =
+interpretExpr (ExprFuncall func ctArgsE rtArgsE) =
     interpretExpr func
     >>= \case
     Func f -> do
-        argsE <- mapM interpretExpr args
-        scope <- newScope (funcParams f) argsE
-        res <- interpretStmts (funcBody f)
-            & local (const scope)
+        ctArgs <- mapM interpretExpr ctArgsE
+        rtArgs <- mapM interpretExpr rtArgsE
+        res <-
+            interpretStmts (funcBody f)
+            & withScope (funcCTParams f, ctArgs) (funcRTParams f, rtArgs)
             & runExceptT
         case res of
             Left val -> pure val

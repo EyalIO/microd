@@ -61,7 +61,7 @@ parseAddSub =
     parseMul
 
 parseMul :: Parser Expr
-parseMul = parseLAssocInfix (InfixMul <$ oper "*") parseTerminal
+parseMul = parseLAssocInfix (InfixMul <$ oper "*") parsePostfix
 
 parseLAssocInfix :: Parser InfixOp -> Parser Expr -> Parser Expr
 parseLAssocInfix infixOp higherPrecParser = do
@@ -120,26 +120,28 @@ literalStr =
 parseMixin :: Parser Expr
 parseMixin = keyword "mixin" *> noise *> openParen *> parseExpr <* closeParen
 
-parseTerminal:: Parser Expr
+parseTerminal :: Parser Expr
 parseTerminal =
+        ExprLiteralNum <$> scientific
+    <|> ExprLiteralBool <$> literalBool
+    <|> ExprLiteralStr <$> literalStr
+    <|> ExprMixin <$> parseMixin
+    <|> ExprParens <$> (openParen *> parseExpr <* closeParen)
+    <|> ExprVar <$> parseIdent
+    <?> "Terminal expression"
+
+parsePostfix :: Parser Expr
+parsePostfix =
     do
-        term <-
-                ExprLiteralNum <$> scientific
-            <|> ExprLiteralBool <$> literalBool
-            <|> ExprLiteralStr <$> literalStr
-            <|> ExprMixin <$> parseMixin
-            <|> ExprParens <$> (openParen *> parseExpr <* closeParen)
-            <|> ExprVar <$> parseIdent
-            <?> "Terminal expression"
+        term <- parseTerminal
         postfix term
     where
+        argList = openParen *> parseExpr `sepBy` (char ',') <* closeParen
         postfix e = do
             noise
-            (ExprFuncall e
-                <$> (openParen *>
-                        (parseExpr `sepBy` (char ','))
-                        <* closeParen)
-                >>= postfix)
+            (ExprFuncall e <$> (oper "!" *> (argList <|> (:[]) <$> parseTerminal)) <*> argList
+             <|> ExprFuncall e [] <$> argList
+             >>= postfix)
                 <|> (ExprGetAttr e <$> (char '.' *> parseIdent) >>= postfix)
                 <|> pure e
 
@@ -163,12 +165,19 @@ parseStmt =
 
 parseFuncDecl :: Parser FuncDecl
 parseFuncDecl =
-    FuncDecl
+    mkFuncDecl
     <$> parseType <* noise
     <*> parseIdent <* noise
-    <*> (openParen *> (parseParam `sepBy` char ',') <* closeParen) <* noise
+    <*> paramList <* noise
+    <*> optional (paramList <* noise)
     <*> parseBlock
     <?> "Function Declaration"
+    where
+        mkFuncDecl typ ident params Nothing block =
+            FuncDecl typ ident [] params block
+        mkFuncDecl typ ident ctParams (Just rtParams) block =
+            FuncDecl typ ident ctParams rtParams block
+        paramList = openParen *> (parseParam `sepBy` char ',') <* closeParen
 
 parsePragma :: ByteString -> Parser a -> Parser a
 parsePragma pragma p =
@@ -190,3 +199,4 @@ parseModule =
     <* noise
     <* endOfInput
     <?> "Module"
+

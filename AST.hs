@@ -30,7 +30,7 @@ data Expr
     | ExprGetAttr Expr Ident
     | ExprParens Expr
     | ExprAssign Expr Expr
-    | ExprFuncall Expr [Expr]
+    | ExprFuncall Expr [Expr] [Expr]
     | ExprInfix Expr InfixOp Expr
     deriving Show
 
@@ -45,7 +45,8 @@ data Stmt
 data FuncDecl = FuncDecl
     { funcRetType :: Type
     , funcIdent :: Ident
-    , funcParams :: [Param]
+    , funcCTParams :: [Param]
+    , funcRTParams :: [Param]
     , funcBody :: [Stmt]
     } deriving Show
 
