@@ -47,6 +47,7 @@ data FuncDecl = FuncDecl
 
 data Decl
     = DeclFunc FuncDecl
+    | DeclPragmaMsg Expr
     deriving Show
 
 data Module = Module

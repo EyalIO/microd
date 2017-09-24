@@ -20,7 +20,7 @@ keyword :: ByteString -> Parser ()
 keyword s = string s *> guardChar "new word" (not . isAlphaNum) *> noise
 
 oper :: ByteString -> Parser ()
-oper s = string s *> guardChar "end of operator" (`notElem` ("+*-~/=%^&|"::String))
+oper s = string s *> guardChar "end of operator" (`notElem` ("+*-~/=%^&|"::String)) *> noise
 
 parseType :: Parser Type
 parseType =
@@ -71,7 +71,7 @@ parseLAssocInfix infixOp higherPrecParser = do
 parseRAssocOp :: ByteString -> (Expr -> Expr -> Expr) -> Parser Expr -> Parser Expr
 parseRAssocOp opStr cons higherPrecParser = do
     expr <- higherPrecParser <* noise
-    more <- many (oper opStr *> noise *> higherPrecParser)
+    more <- many (oper opStr *> higherPrecParser)
     pure $ case more of
         [] -> expr
         (x:xs) -> cons expr (go x xs)
@@ -133,8 +133,14 @@ parseFuncDecl =
     <*> (openParen *> (parseParam `sepBy` char ',') <* closeParen) <* noise
     <*> parseBlock
 
+parsePragma :: ByteString -> Parser a -> Parser a
+parsePragma pragma p =
+    keyword "pragma" *> openParen *> string pragma *> noise *> oper "," *> p <* closeParen
+
 parseDecl :: Parser Decl
-parseDecl = DeclFunc <$> parseFuncDecl
+parseDecl =
+    DeclFunc <$> parseFuncDecl
+    <|> (DeclPragmaMsg <$> parsePragma "msg" parseExpr <* semicolon)
 
 parseModule :: Parser Module
 parseModule =
@@ -142,4 +148,5 @@ parseModule =
     (Module
         <$> (keyword "module" *> noise *> parseIdent <* semicolon)
         <*> many (noise *> parseDecl))
+    <* noise
     <* endOfInput
