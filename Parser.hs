@@ -26,6 +26,8 @@ parseType :: Parser Type
 parseType =
     (TInt <$ keyword "int")
     <|> (TVoid <$ keyword "void")
+    <|> (TBool <$ keyword "bool")
+    <|> (TString <$ keyword "string")
 
 inRange :: Ord a => a -> a -> a -> Bool
 inRange low hi x = low <= x && x <= hi
@@ -34,16 +36,19 @@ parseIdent :: Parser Ident
 parseIdent =
     (:)
     <$> satisfy (`elem` ['a'..'z'] ++ ['A'..'Z'] ++ "_")
-    <*> many1 (satisfy isAlpha_ascii)
+    <*> many (satisfy isAlpha_ascii)
+    <?> "Identifier"
 
 noise :: Parser ()
-noise = skipSpace
+noise = skipSpace <?> "whitespace"
 
 parseParam :: Parser Param
-parseParam = Param <$> (parseType <* noise) <*> parseIdent
+parseParam =
+    Param <$> (parseType <* noise) <*> parseIdent
+    <?> "Parameter"
 
 parseExpr :: Parser Expr
-parseExpr = parseAssign
+parseExpr = parseAssign <?> "Expression"
 
 parseAssign :: Parser Expr
 parseAssign = parseRAssocOp "=" ExprAssign parseAddSub
@@ -91,13 +96,35 @@ semicolon = noise <* char ';'
 sepBy :: Parser a -> Parser x -> Parser [a]
 p `sepBy` sep = p `P.sepBy` (noise *> sep <* noise)
 
+literalBool :: Parser Bool
+literalBool = False <$ "false" <|> True <$ "true"
+
+escapeSequence :: Parser Char
+escapeSequence =
+    char '\\' *> anyChar >>= unescape
+    where
+        unescape 't' = pure '\t'
+        unescape 'n' = pure '\n'
+        unescape 'r' = pure '\r'
+        unescape x = fail ("Bad escape char: " ++ show x)
+
+literalStr :: Parser String
+literalStr =
+    quoted '"' <|> quoted '\'' <|> quoted '`'
+    where
+        quoted q = char q *> many oneChar <* char q
+        oneChar = escapeSequence <|> satisfy (`notElem` ['\\', '"'])
+
 parseTerminal:: Parser Expr
 parseTerminal =
     do
         term <-
-            ExprLiteralNum <$> scientific
+                ExprLiteralNum <$> scientific
+            <|> ExprLiteralBool <$> literalBool
+            <|> ExprLiteralStr <$> literalStr
             <|> ExprParens <$> (openParen *> parseExpr <* closeParen)
             <|> ExprVar <$> parseIdent
+            <?> "Terminal expression"
         postfix term
     where
         postfix e = do
@@ -113,17 +140,20 @@ parseTerminal =
 parseBlock :: Parser [Stmt]
 parseBlock =
     char '{' *> noise *>
-    many parseStmt <* noise <*
+    many (parseStmt <* noise) <*
     char '}'
+    <?> "Statement block"
 
 parseStmt :: Parser Stmt
 parseStmt =
-    (StmtRet <$> (keyword "return" *> parseExpr <* semicolon))
-    <|> (StmtIf
+    StmtRet <$> (keyword "return" *> parseExpr <* semicolon)
+    <|> StmtIf
             <$> (keyword "if" *> openParen *> parseExpr <* closeParen)
             <*> (noise *> parseStmt)
-            <*> (optional (noise *> keyword "else" *> parseStmt)))
-    <|> (StmtBlock <$> parseBlock)
+            <*> (optional (noise *> keyword "else" *> parseStmt))
+    <|> StmtBlock <$> parseBlock
+    <|> StmtExpr <$> parseExpr <* semicolon
+    <?> "Statement"
 
 parseFuncDecl :: Parser FuncDecl
 parseFuncDecl =
@@ -132,15 +162,18 @@ parseFuncDecl =
     <*> parseIdent <* noise
     <*> (openParen *> (parseParam `sepBy` char ',') <* closeParen) <* noise
     <*> parseBlock
+    <?> "Function Declaration"
 
 parsePragma :: ByteString -> Parser a -> Parser a
 parsePragma pragma p =
     keyword "pragma" *> openParen *> string pragma *> noise *> oper "," *> p <* closeParen
+    <?> "Pragma"
 
 parseDecl :: Parser Decl
 parseDecl =
     DeclFunc <$> parseFuncDecl
     <|> (DeclPragmaMsg <$> parsePragma "msg" parseExpr <* semicolon)
+    <?> "Declaration"
 
 parseModule :: Parser Module
 parseModule =
@@ -150,3 +183,4 @@ parseModule =
         <*> many (noise *> parseDecl))
     <* noise
     <* endOfInput
+    <?> "Module"

@@ -1,7 +1,8 @@
 module Foo;
 
-int foo() {
-    return 5;
+int foo(int y, string s) {
+    y = y + 1;
+    return mixin(s ~ "return y;");
 }
 
-pragma(msg, foo);
+pragma(msg, foo(3, "y = y*2;"));

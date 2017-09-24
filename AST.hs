@@ -3,7 +3,7 @@ module AST where
 
 import           Data.Scientific (Scientific)
 
-data Type = TInt | TVoid
+data Type = TInt | TVoid | TBool | TString
     deriving Show
 
 type Ident = String
@@ -22,6 +22,8 @@ data InfixOp
 
 data Expr
     = ExprLiteralNum Scientific
+    | ExprLiteralBool Bool
+    | ExprLiteralStr String
     | ExprVar Ident
     | ExprGetAttr Expr Ident
     | ExprParens Expr
