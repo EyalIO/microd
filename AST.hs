@@ -1,7 +1,8 @@
 {-# OPTIONS -Wall #-}
 module AST where
 
-import           Data.Scientific (Scientific)
+import Data.ByteString.Char8 (ByteString)
+import Data.Scientific (Scientific)
 
 data Type = TInt | TVoid | TBool | TString
     deriving Show
@@ -23,7 +24,8 @@ data InfixOp
 data Expr
     = ExprLiteralNum Scientific
     | ExprLiteralBool Bool
-    | ExprLiteralStr String
+    | ExprLiteralStr ByteString
+    | ExprMixin Expr
     | ExprVar Ident
     | ExprGetAttr Expr Ident
     | ExprParens Expr

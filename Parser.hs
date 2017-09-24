@@ -4,9 +4,10 @@ module Parser where
 
 import           AST
 import           Control.Applicative
+import           Control.Lens.Operators
 import qualified Data.Attoparsec.ByteString.Char8 as P
 import           Data.Attoparsec.ByteString.Char8 hiding (sepBy)
-import           Data.ByteString.Char8 (ByteString)
+import           Data.ByteString.Char8 (ByteString, pack)
 import           Data.Char (isAlphaNum)
 
 guardChar :: String -> (Char -> Bool) -> Parser ()
@@ -108,12 +109,16 @@ escapeSequence =
         unescape 'r' = pure '\r'
         unescape x = fail ("Bad escape char: " ++ show x)
 
-literalStr :: Parser String
+literalStr :: Parser ByteString
 literalStr =
     quoted '"' <|> quoted '\'' <|> quoted '`'
+    <&> pack
     where
         quoted q = char q *> many oneChar <* char q
         oneChar = escapeSequence <|> satisfy (`notElem` ['\\', '"'])
+
+parseMixin :: Parser Expr
+parseMixin = keyword "mixin" *> noise *> openParen *> parseExpr <* closeParen
 
 parseTerminal:: Parser Expr
 parseTerminal =
@@ -122,6 +127,7 @@ parseTerminal =
                 ExprLiteralNum <$> scientific
             <|> ExprLiteralBool <$> literalBool
             <|> ExprLiteralStr <$> literalStr
+            <|> ExprMixin <$> parseMixin
             <|> ExprParens <$> (openParen *> parseExpr <* closeParen)
             <|> ExprVar <$> parseIdent
             <?> "Terminal expression"

@@ -7,10 +7,13 @@ import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
+import Data.Attoparsec.ByteString.Char8 (parseOnly)
+import Data.ByteString.Char8 (ByteString)
 import Data.Foldable (traverse_)
 import Data.IORef
 import Data.Map
 import Data.Scientific
+import Parser (parseExpr)
 
 data CollectEnv = CollectEnv
     { _collectFuncs :: Map Ident FuncDecl
@@ -21,7 +24,7 @@ makeLenses ''CollectEnv
 data DRVal
     = DNum Scientific
     | DBool Bool
-    | DString String
+    | DString ByteString
 
 data DVal
     = Func FuncDecl
@@ -109,7 +112,7 @@ num2 msg _ _ _ = fail ("Cannot " ++ msg ++ " non-numbers)")
 
 str2 ::
     Monad f =>
-    String -> (String -> String -> String) ->
+    String -> (ByteString -> ByteString -> ByteString) ->
     DRVal -> DRVal -> f DRVal
 str2 _ f (DString x) (DString y) = DString (f x y) & pure
 str2 msg _ _ _ = fail ("Cannot " ++ msg ++ " non-strings)")
@@ -118,7 +121,7 @@ funcOp :: Monad f => InfixOp -> DRVal -> DRVal -> f DRVal
 funcOp InfixAdd = num2 "add" (+)
 funcOp InfixSub = num2 "subtract" (-)
 funcOp InfixMul = num2 "multiply" (*)
-funcOp InfixConcat = str2 "concat" (++)
+funcOp InfixConcat = str2 "concat" mappend
 
 interpretInfix :: InfixOp -> DVal -> DVal -> Interpret DVal
 interpretInfix iop l r =
@@ -161,7 +164,7 @@ interpretExpr (ExprAssign var other) =
         do
             rval <-
                 interpretExpr other
-                >>= getDRVal "Cannot assign from"
+                >>= getDRVal "Cannot assign from "
             writeIORef ref rval & liftIO
             LValue ref & pure
     _ -> fail "Assignment target is not an lvalue"
@@ -169,3 +172,11 @@ interpretExpr (ExprGetAttr _var _member) = error "unimplemented: getAttr"
 interpretExpr (ExprParens var) = interpretExpr var
 interpretExpr (ExprInfix l iop r) =
     join $ interpretInfix iop <$> interpretExpr l <*> interpretExpr r
+interpretExpr (ExprMixin strExpr) =
+    interpretExpr strExpr >>= getDRVal "Cannot mixin "
+    >>= \case
+    DString str ->
+        case parseOnly parseExpr str of
+        Left err -> fail ("mixin parse error: " ++ show err ++ " source: " ++ show str)
+        Right expr -> interpretExpr expr
+    x -> fail ("Cannot mixin " ++ showDRVal x)
