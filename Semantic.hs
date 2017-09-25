@@ -1,6 +1,6 @@
 {-# OPTIONS -Wall #-}
 {-# LANGUAGE TemplateHaskell, LambdaCase, ScopedTypeVariables, FlexibleContexts #-}
-module CTFE where
+module Semantic where
 
 import AST
 import Control.Applicative
@@ -40,7 +40,7 @@ data Scope = Scope
     }
 makeLenses ''Scope
 
-type Interpret = ReaderT Scope (StateT (Map Ident FFuncDecl) IO)
+type Semantic = ReaderT Scope (StateT (Map Ident FFuncDecl) IO)
 
 showDRVal :: DRVal -> String
 showDRVal (DNum v) = show v
@@ -53,12 +53,12 @@ showDVal (LValue ref) = liftIO (readIORef ref) <&> showDRVal
 showDVal (Func f) = pure (show f)
 showDVal Void = pure "void"
 
-interpret :: FModule -> IO ()
-interpret (Module _ decls) =
+semantic :: FModule -> IO ()
+semantic (Module _ decls) =
     do
         let CollectEnv funcs pragmaMsgs =
                 mapM_ collectDecl decls `execState` CollectEnv mempty []
-        _ <- mapM_ (\expr -> interpretExpr expr >>= showDVal >>= liftIO . putStrLn) (reverse pragmaMsgs)
+        _ <- mapM_ (\expr -> semanticExpr expr >>= showDVal >>= liftIO . putStrLn) (reverse pragmaMsgs)
             & (`runReaderT` Scope mempty mempty)
             & (`execStateT` funcs)
         pure ()
@@ -67,18 +67,18 @@ collectDecl :: FDecl -> State CollectEnv ()
 collectDecl (DeclFunc func)      = collectFuncs . at (funcIdent func) ?= func
 collectDecl (DeclPragmaMsg expr) = collectPragmaMsgs %= (expr:)
 
-interpretStmt :: FStmt -> ExceptT DVal Interpret ()
-interpretStmt (StmtExpr val) = interpretExpr val & void & lift
-interpretStmt (StmtIf cond t mf) = do
-    RValue (DBool b) <- interpretExpr cond & lift
-    if b then interpretStmt t else traverse_ interpretStmt mf
-interpretStmt (StmtRet val) = lift (interpretExpr val) >>= throwError
-interpretStmt (StmtBlock stmts) = interpretStmts stmts
+semanticStmt :: FStmt -> ExceptT DVal Semantic ()
+semanticStmt (StmtExpr val) = semanticExpr val & void & lift
+semanticStmt (StmtIf cond t mf) = do
+    RValue (DBool b) <- semanticExpr cond & lift
+    if b then semanticStmt t else traverse_ semanticStmt mf
+semanticStmt (StmtRet val) = lift (semanticExpr val) >>= throwError
+semanticStmt (StmtBlock stmts) = semanticStmts stmts
 
-interpretStmts :: [FStmt] -> ExceptT DVal Interpret ()
-interpretStmts [] = pure ()
-interpretStmts [x] = interpretStmt x
-interpretStmts (x:xs) = interpretStmt x >> interpretStmts xs
+semanticStmts :: [FStmt] -> ExceptT DVal Semantic ()
+semanticStmts [] = pure ()
+semanticStmts [x] = semanticStmt x
+semanticStmts (x:xs) = semanticStmt x >> semanticStmts xs
 
 -- Monad for "fail"
 match :: Monad m => String -> (a -> b -> m c) -> [a] -> [b] -> m [c]
@@ -136,16 +136,16 @@ funcOp InfixSub = num2 "subtract" (-)
 funcOp InfixMul = num2 "multiply" (*)
 funcOp InfixConcat = str2 "concat" (<>)
 
-interpretInfix :: InfixOp -> DVal -> DVal -> Interpret DVal
-interpretInfix iop l r =
+semanticInfix :: InfixOp -> DVal -> DVal -> Semantic DVal
+semanticInfix iop l r =
     funcOp iop <$> getDRVal msg l <*> getDRVal msg r
     & join
     <&> RValue
     where
         msg = "Cannot " ++ show iop ++ " from"
 
-interpretExpr :: FExpr -> Interpret DVal
-interpretExpr (FExpr e) =
+semanticExpr :: FExpr -> Semantic DVal
+semanticExpr (FExpr e) =
     case e of
     ExprVar var ->
         (<|>)
@@ -161,13 +161,13 @@ interpretExpr (FExpr e) =
             Just func -> pure (Func func)
         Just (ref :: IORef DRVal) -> pure (LValue ref)
     ExprFuncall func ctArgsE rtArgsE ->
-        interpretExpr func
+        semanticExpr func
         >>= \case
         Func f -> do
-            ctArgs <- mapM interpretExpr ctArgsE
-            rtArgs <- mapM interpretExpr rtArgsE
+            ctArgs <- mapM semanticExpr ctArgsE
+            rtArgs <- mapM semanticExpr rtArgsE
             res <-
-                interpretStmts (funcBody f)
+                semanticStmts (funcBody f)
                 & withScope (funcCTParams f, ctArgs) (funcRTParams f, rtArgs)
                 & runExceptT
             case res of
@@ -178,25 +178,25 @@ interpretExpr (FExpr e) =
     ExprLiteralBool x -> RValue (DBool x) & pure
     ExprLiteralStr x -> RValue (DString x) & pure
     ExprAssign var other ->
-        interpretExpr var
+        semanticExpr var
         >>= \case
         LValue ref ->
             do
                 rval <-
-                    interpretExpr other
+                    semanticExpr other
                     >>= getDRVal "Cannot assign from "
                 writeIORef ref rval & liftIO
                 LValue ref & pure
         _ -> fail "Assignment target is not an lvalue"
     ExprGetAttr _var _member -> error "unimplemented: getAttr"
-    ExprParens var -> interpretExpr var
+    ExprParens var -> semanticExpr var
     ExprInfix l iop r ->
-        join $ interpretInfix iop <$> interpretExpr l <*> interpretExpr r
+        join $ semanticInfix iop <$> semanticExpr l <*> semanticExpr r
     ExprMixin strExpr ->
-        interpretExpr strExpr >>= getDRVal "Cannot mixin "
+        semanticExpr strExpr >>= getDRVal "Cannot mixin "
         >>= \case
         DString str ->
             case parseOnly parseExpr str of
             Left err -> fail ("mixin parse error: " ++ show err ++ " source: " ++ show str)
-            Right expr -> interpretExpr expr
+            Right expr -> semanticExpr expr
         x -> fail ("Cannot mixin " ++ showDRVal x)
