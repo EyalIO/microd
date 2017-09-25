@@ -3,6 +3,7 @@
 module Semantic where
 
 import AST
+import Collect (collect, CollectEnv(..))
 import Control.Applicative
 import Control.Lens
 import Control.Monad.Except
@@ -16,12 +17,6 @@ import Data.Map
 import Data.Monoid
 import Data.Scientific
 import Parser (parseExpr)
-
-data CollectEnv = CollectEnv
-    { _collectFuncs :: Map Ident FFuncDecl
-    , _collectPragmaMsgs :: [FExpr]
-    }
-makeLenses ''CollectEnv
 
 data DRVal
     = DNum Scientific
@@ -54,18 +49,13 @@ showDVal (Func f) = pure (show f)
 showDVal Void = pure "void"
 
 semantic :: FModule -> IO ()
-semantic (Module _ decls) =
+semantic module_ =
     do
-        let CollectEnv funcs pragmaMsgs =
-                mapM_ collectDecl decls `execState` CollectEnv mempty []
+        let CollectEnv funcs pragmaMsgs = collect module_
         _ <- mapM_ (\expr -> semanticExpr expr >>= showDVal >>= liftIO . putStrLn) (reverse pragmaMsgs)
             & (`runReaderT` Scope mempty mempty)
             & (`execStateT` funcs)
         pure ()
-
-collectDecl :: FDecl -> State CollectEnv ()
-collectDecl (DeclFunc func)      = collectFuncs . at (funcIdent func) ?= func
-collectDecl (DeclPragmaMsg expr) = collectPragmaMsgs %= (expr:)
 
 semanticStmt :: FStmt -> ExceptT DVal Semantic ()
 semanticStmt (StmtExpr val) = semanticExpr val & void & lift
