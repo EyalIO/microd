@@ -21,41 +21,48 @@ data InfixOp
     | InfixConcat
     deriving Show
 
-data Expr
+data Expr expr
     = ExprLiteralNum Scientific
     | ExprLiteralBool Bool
     | ExprLiteralStr ByteString
-    | ExprMixin Expr
+    | ExprMixin expr
     | ExprVar Ident
-    | ExprGetAttr Expr Ident
-    | ExprParens Expr
-    | ExprAssign Expr Expr
-    | ExprFuncall Expr [Expr] [Expr]
-    | ExprInfix Expr InfixOp Expr
+    | ExprGetAttr expr Ident
+    | ExprParens expr
+    | ExprAssign expr expr
+    | ExprFuncall expr [expr] [expr]
+    | ExprInfix expr InfixOp expr
     deriving Show
 
-data Stmt
-    = StmtRet Expr
-    | StmtIf Expr Stmt (Maybe Stmt)
-    | StmtExpr Expr
-    | StmtBlock [Stmt]
+data Stmt expr
+    = StmtRet expr
+    | StmtIf expr (Stmt expr) (Maybe (Stmt expr))
+    | StmtExpr expr
+    | StmtBlock [Stmt expr]
     --  | StmtDecl Decl
     deriving Show
 
-data FuncDecl = FuncDecl
+data FuncDecl expr = FuncDecl
     { funcRetType :: Type
     , funcIdent :: Ident
     , funcCTParams :: [Param]
     , funcRTParams :: [Param]
-    , funcBody :: [Stmt]
+    , funcBody :: [Stmt expr]
     } deriving Show
 
-data Decl
-    = DeclFunc FuncDecl
-    | DeclPragmaMsg Expr
+data Decl expr
+    = DeclFunc (FuncDecl expr)
+    | DeclPragmaMsg expr
     deriving Show
 
-data Module = Module
+data Module expr = Module
     { astModuleName :: String
-    , astDecls :: [Decl]
+    , astDecls :: [Decl expr]
     } deriving Show
+
+-- Direct fix-point for Expr
+newtype FExpr = FExpr { _fExpr :: Expr FExpr } deriving Show
+type FStmt = Stmt FExpr
+type FDecl = Decl FExpr
+type FFuncDecl = FuncDecl FExpr
+type FModule = Module FExpr

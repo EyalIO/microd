@@ -48,22 +48,22 @@ parseParam =
     Param <$> (parseType <* noise) <*> parseIdent
     <?> "Parameter"
 
-parseExpr :: Parser Expr
+parseExpr :: Parser FExpr
 parseExpr = parseAssign <?> "Expression"
 
-parseAssign :: Parser Expr
-parseAssign = parseRAssocOp "=" ExprAssign parseAddSub
+parseAssign :: Parser FExpr
+parseAssign = parseRAssocOp "=" (ExprAssign <&> fmap FExpr) parseAddSub
 
-parseAddSub :: Parser Expr
+parseAddSub :: Parser FExpr
 parseAddSub =
     parseLAssocInfix
     (InfixAdd <$ oper "+" <|> InfixSub <$ oper "-" <|> InfixConcat <$ oper "~")
     parseMul
 
-parseMul :: Parser Expr
+parseMul :: Parser FExpr
 parseMul = parseLAssocInfix (InfixMul <$ oper "*") parsePostfix
 
-parseLAssocInfix :: Parser InfixOp -> Parser Expr -> Parser Expr
+parseLAssocInfix :: Parser InfixOp -> Parser FExpr -> Parser FExpr
 parseLAssocInfix infixOp higherPrecParser = do
     l <- higherPrecParser <* noise
     go l
@@ -71,10 +71,10 @@ parseLAssocInfix infixOp higherPrecParser = do
         go l = do
             op <- infixOp
             r <- higherPrecParser
-            go (ExprInfix l op r)
+            go (ExprInfix l op r & FExpr)
             <|> pure l
 
-parseRAssocOp :: ByteString -> (Expr -> Expr -> Expr) -> Parser Expr -> Parser Expr
+parseRAssocOp :: ByteString -> (FExpr -> FExpr -> FExpr) -> Parser FExpr -> Parser FExpr
 parseRAssocOp opStr cons higherPrecParser = do
     expr <- higherPrecParser <* noise
     more <- many (oper opStr *> higherPrecParser)
@@ -117,10 +117,10 @@ literalStr =
         quoted q = char q *> many oneChar <* char q
         oneChar = escapeSequence <|> satisfy (`notElem` ['\\', '"'])
 
-parseMixin :: Parser Expr
+parseMixin :: Parser FExpr
 parseMixin = keyword "mixin" *> noise *> openParen *> parseExpr <* closeParen
 
-parseTerminal :: Parser Expr
+parseTerminal :: Parser FExpr
 parseTerminal =
         ExprLiteralNum <$> scientific
     <|> ExprLiteralBool <$> literalBool
@@ -128,31 +128,33 @@ parseTerminal =
     <|> ExprMixin <$> parseMixin
     <|> ExprParens <$> (openParen *> parseExpr <* closeParen)
     <|> ExprVar <$> parseIdent
+    <&> FExpr
     <?> "Terminal expression"
 
-parsePostfix :: Parser Expr
+parsePostfix :: Parser FExpr
 parsePostfix =
     do
-        term <- parseTerminal
+        FExpr term <- parseTerminal
         postfix term
     where
         argList = openParen *> parseExpr `sepBy` (char ',') <* closeParen
         postfix e = do
+            let ex = FExpr e
             noise
-            (ExprFuncall e <$> (oper "!" *> (argList <|> (:[]) <$> parseTerminal)) <*> argList
-             <|> ExprFuncall e [] <$> argList
+            (ExprFuncall ex <$> (oper "!" *> (argList <|> (:[]) <$> parseTerminal)) <*> argList
+             <|> ExprFuncall ex [] <$> argList
              >>= postfix)
-                <|> (ExprGetAttr e <$> (char '.' *> parseIdent) >>= postfix)
-                <|> pure e
+                <|> (ExprGetAttr ex <$> (char '.' *> parseIdent) >>= postfix)
+                <|> pure ex
 
-parseBlock :: Parser [Stmt]
+parseBlock :: Parser [FStmt]
 parseBlock =
     char '{' *> noise *>
     many (parseStmt <* noise) <*
     char '}'
     <?> "Statement block"
 
-parseStmt :: Parser Stmt
+parseStmt :: Parser FStmt
 parseStmt =
     StmtRet <$> (keyword "return" *> parseExpr <* semicolon)
     <|> StmtIf
@@ -163,7 +165,7 @@ parseStmt =
     <|> StmtExpr <$> parseExpr <* semicolon
     <?> "Statement"
 
-parseFuncDecl :: Parser FuncDecl
+parseFuncDecl :: Parser FFuncDecl
 parseFuncDecl =
     mkFuncDecl
     <$> parseType <* noise
@@ -184,13 +186,13 @@ parsePragma pragma p =
     keyword "pragma" *> openParen *> string pragma *> noise *> oper "," *> p <* closeParen
     <?> "Pragma"
 
-parseDecl :: Parser Decl
+parseDecl :: Parser FDecl
 parseDecl =
     DeclFunc <$> parseFuncDecl
     <|> (DeclPragmaMsg <$> parsePragma "msg" parseExpr <* semicolon)
     <?> "Declaration"
 
-parseModule :: Parser Module
+parseModule :: Parser FModule
 parseModule =
     noise *>
     (Module

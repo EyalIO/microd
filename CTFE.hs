@@ -18,8 +18,8 @@ import Data.Scientific
 import Parser (parseExpr)
 
 data CollectEnv = CollectEnv
-    { _collectFuncs :: Map Ident FuncDecl
-    , _collectPragmaMsgs :: [Expr]
+    { _collectFuncs :: Map Ident FFuncDecl
+    , _collectPragmaMsgs :: [FExpr]
     }
 makeLenses ''CollectEnv
 
@@ -29,7 +29,7 @@ data DRVal
     | DString ByteString
 
 data DVal
-    = Func FuncDecl
+    = Func FFuncDecl
     | RValue DRVal
     | LValue (IORef DRVal)
     | Void
@@ -40,7 +40,7 @@ data Scope = Scope
     }
 makeLenses ''Scope
 
-type Interpret = ReaderT Scope (StateT (Map Ident FuncDecl) IO)
+type Interpret = ReaderT Scope (StateT (Map Ident FFuncDecl) IO)
 
 showDRVal :: DRVal -> String
 showDRVal (DNum v) = show v
@@ -53,7 +53,7 @@ showDVal (LValue ref) = liftIO (readIORef ref) <&> showDRVal
 showDVal (Func f) = pure (show f)
 showDVal Void = pure "void"
 
-interpret :: Module -> IO ()
+interpret :: FModule -> IO ()
 interpret (Module _ decls) =
     do
         let CollectEnv funcs pragmaMsgs =
@@ -63,11 +63,11 @@ interpret (Module _ decls) =
             & (`execStateT` funcs)
         pure ()
 
-collectDecl :: Decl -> State CollectEnv ()
+collectDecl :: FDecl -> State CollectEnv ()
 collectDecl (DeclFunc func)      = collectFuncs . at (funcIdent func) ?= func
 collectDecl (DeclPragmaMsg expr) = collectPragmaMsgs %= (expr:)
 
-interpretStmt :: Stmt -> ExceptT DVal Interpret ()
+interpretStmt :: FStmt -> ExceptT DVal Interpret ()
 interpretStmt (StmtExpr val) = interpretExpr val & void & lift
 interpretStmt (StmtIf cond t mf) = do
     RValue (DBool b) <- interpretExpr cond & lift
@@ -75,7 +75,7 @@ interpretStmt (StmtIf cond t mf) = do
 interpretStmt (StmtRet val) = lift (interpretExpr val) >>= throwError
 interpretStmt (StmtBlock stmts) = interpretStmts stmts
 
-interpretStmts :: [Stmt] -> ExceptT DVal Interpret ()
+interpretStmts :: [FStmt] -> ExceptT DVal Interpret ()
 interpretStmts [] = pure ()
 interpretStmts [x] = interpretStmt x
 interpretStmts (x:xs) = interpretStmt x >> interpretStmts xs
@@ -144,57 +144,59 @@ interpretInfix iop l r =
     where
         msg = "Cannot " ++ show iop ++ " from"
 
-interpretExpr :: Expr -> Interpret DVal
-interpretExpr (ExprVar var) =
-    (<|>)
-    <$> view (scopeRTParams . at var)
-    <*> view (scopeCTParams . at var)
-    >>= \case
-    Nothing ->
-        use (at var)
+interpretExpr :: FExpr -> Interpret DVal
+interpretExpr (FExpr e) =
+    case e of
+    ExprVar var ->
+        (<|>)
+        <$> view (scopeRTParams . at var)
+        <*> view (scopeCTParams . at var)
         >>= \case
-        Nothing -> do
-            ct <- view (scopeCTParams . at var)
-            fail ("Undefined variable: " ++ show var ++ " not in " ++ show (void ct))
-        Just func -> pure (Func func)
-    Just (ref :: IORef DRVal) -> pure (LValue ref)
-interpretExpr (ExprFuncall func ctArgsE rtArgsE) =
-    interpretExpr func
-    >>= \case
-    Func f -> do
-        ctArgs <- mapM interpretExpr ctArgsE
-        rtArgs <- mapM interpretExpr rtArgsE
-        res <-
-            interpretStmts (funcBody f)
-            & withScope (funcCTParams f, ctArgs) (funcRTParams f, rtArgs)
-            & runExceptT
-        case res of
-            Left val -> pure val
-            Right () -> fail "Missing 'return' statement"
-    x -> showDVal x >>= fail . ("Calling a non-function: " ++)
-interpretExpr (ExprLiteralNum x) = RValue (DNum x) & pure
-interpretExpr (ExprLiteralBool x) = RValue (DBool x) & pure
-interpretExpr (ExprLiteralStr x) = RValue (DString x) & pure
-interpretExpr (ExprAssign var other) =
-    interpretExpr var
-    >>= \case
-    LValue ref ->
-        do
-            rval <-
-                interpretExpr other
-                >>= getDRVal "Cannot assign from "
-            writeIORef ref rval & liftIO
-            LValue ref & pure
-    _ -> fail "Assignment target is not an lvalue"
-interpretExpr (ExprGetAttr _var _member) = error "unimplemented: getAttr"
-interpretExpr (ExprParens var) = interpretExpr var
-interpretExpr (ExprInfix l iop r) =
-    join $ interpretInfix iop <$> interpretExpr l <*> interpretExpr r
-interpretExpr (ExprMixin strExpr) =
-    interpretExpr strExpr >>= getDRVal "Cannot mixin "
-    >>= \case
-    DString str ->
-        case parseOnly parseExpr str of
-        Left err -> fail ("mixin parse error: " ++ show err ++ " source: " ++ show str)
-        Right expr -> interpretExpr expr
-    x -> fail ("Cannot mixin " ++ showDRVal x)
+        Nothing ->
+            use (at var)
+            >>= \case
+            Nothing -> do
+                ct <- view (scopeCTParams . at var)
+                fail ("Undefined variable: " ++ show var ++ " not in " ++ show (void ct))
+            Just func -> pure (Func func)
+        Just (ref :: IORef DRVal) -> pure (LValue ref)
+    ExprFuncall func ctArgsE rtArgsE ->
+        interpretExpr func
+        >>= \case
+        Func f -> do
+            ctArgs <- mapM interpretExpr ctArgsE
+            rtArgs <- mapM interpretExpr rtArgsE
+            res <-
+                interpretStmts (funcBody f)
+                & withScope (funcCTParams f, ctArgs) (funcRTParams f, rtArgs)
+                & runExceptT
+            case res of
+                Left val -> pure val
+                Right () -> fail "Missing 'return' statement"
+        x -> showDVal x >>= fail . ("Calling a non-function: " ++)
+    ExprLiteralNum x -> RValue (DNum x) & pure
+    ExprLiteralBool x -> RValue (DBool x) & pure
+    ExprLiteralStr x -> RValue (DString x) & pure
+    ExprAssign var other ->
+        interpretExpr var
+        >>= \case
+        LValue ref ->
+            do
+                rval <-
+                    interpretExpr other
+                    >>= getDRVal "Cannot assign from "
+                writeIORef ref rval & liftIO
+                LValue ref & pure
+        _ -> fail "Assignment target is not an lvalue"
+    ExprGetAttr _var _member -> error "unimplemented: getAttr"
+    ExprParens var -> interpretExpr var
+    ExprInfix l iop r ->
+        join $ interpretInfix iop <$> interpretExpr l <*> interpretExpr r
+    ExprMixin strExpr ->
+        interpretExpr strExpr >>= getDRVal "Cannot mixin "
+        >>= \case
+        DString str ->
+            case parseOnly parseExpr str of
+            Left err -> fail ("mixin parse error: " ++ show err ++ " source: " ++ show str)
+            Right expr -> interpretExpr expr
+        x -> fail ("Cannot mixin " ++ showDRVal x)
