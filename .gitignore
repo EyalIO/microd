@@ -1,3 +1,5 @@
 /ghci-out
 /dist
 /dist-newstyle
+/.stack-work
+/stack.yaml.lock
