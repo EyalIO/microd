@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, BlockArguments #-}
 module Language.D.Parser
     ( Parser
     , parseStmts
@@ -10,24 +10,17 @@ module Language.D.Parser
 
 import           Control.Applicative
 import           Control.Lens.Operators
-import qualified Data.Attoparsec.ByteString.Char8 as P
-import           Data.Attoparsec.ByteString.Char8 hiding (sepBy)
-import           Data.ByteString.Char8 (ByteString, pack)
 import           Data.Char (isAlphaNum)
+import           Data.Text (Text, pack)
 import           Language.D.AST
+import           Text.Trifecta (Parser, (<?>))
+import qualified Text.Trifecta as P
 
-guardChar :: String -> (Char -> Bool) -> Parser ()
-guardChar msg p = do
-    mc <- peekChar
-    case mc of
-        Just c | not (p c) -> fail ("Expecting " ++ msg)
-        _ -> pure ()
+keyword :: Text -> Parser ()
+keyword s = P.try (P.text s *> (P.notFollowedBy P.alphaNum <?>"?")) <* noise
 
-keyword :: ByteString -> Parser ()
-keyword s = string s *> guardChar "new word" (not . isAlphaNum) *> noise
-
-oper :: ByteString -> Parser ()
-oper s = string s *> guardChar "end of operator" (`notElem` ("+*-~/=%^&|"::String)) *> noise
+oper :: Text -> Parser ()
+oper s = P.try (P.text s *> P.notFollowedBy (P.satisfy (`elem` ("+*-~/=%^&|"::String)))) <* noise
 
 parseType :: Parser Type
 parseType =
@@ -39,12 +32,12 @@ parseType =
 parseIdent :: Parser Ident
 parseIdent =
     (:)
-    <$> satisfy (`elem` ['a'..'z'] ++ ['A'..'Z'] ++ "_")
-    <*> many (satisfy isAlpha_ascii)
+    <$> P.satisfy (`elem` ['a'..'z'] ++ ['A'..'Z'] ++ "_")
+    <*> many P.alphaNum
     <?> "Identifier"
 
 noise :: Parser ()
-noise = skipSpace <?> "whitespace"
+noise = P.whiteSpace -- todo: OR comments...
 
 parseParam :: Parser Param
 parseParam =
@@ -72,12 +65,12 @@ parseLAssocInfix infixOp higherPrecParser = do
     go l
     where
         go l = do
-            op <- infixOp
+            op <- P.try infixOp
             r <- higherPrecParser
             go (ExprInfix l op r & FExpr)
             <|> pure l
 
-parseRAssocOp :: ByteString -> (FExpr -> FExpr -> FExpr) -> Parser FExpr -> Parser FExpr
+parseRAssocOp :: Text -> (FExpr -> FExpr -> FExpr) -> Parser FExpr -> Parser FExpr
 parseRAssocOp opStr cons higherPrecParser = do
     expr <- higherPrecParser <* noise
     more <- many (oper opStr *> higherPrecParser)
@@ -88,50 +81,45 @@ parseRAssocOp opStr cons higherPrecParser = do
         go x [] = x
         go x (y:ys) = cons x (go y ys)
 
-openParen :: Parser ()
-openParen = char '(' *> noise
-
-closeParen :: Parser ()
-closeParen = noise <* char ')'
-
 semicolon :: Parser ()
-semicolon = noise <* char ';'
+semicolon = noise <* P.char ';'
 
 sepBy :: Parser a -> Parser x -> Parser [a]
 p `sepBy` sep = p `P.sepBy` (noise *> sep <* noise)
 
 literalBool :: Parser Bool
-literalBool = False <$ "false" <|> True <$ "true"
+literalBool = False <$ keyword "false" <|> True <$ keyword "true"
 
 escapeSequence :: Parser Char
 escapeSequence =
-    char '\\' *> anyChar >>= unescape
+    P.char '\\' *> P.anyChar >>= unescape
     where
         unescape 't' = pure '\t'
         unescape 'n' = pure '\n'
         unescape 'r' = pure '\r'
         unescape x = fail ("Bad escape char: " ++ show x)
 
-literalStr :: Parser ByteString
+literalStr :: Parser Text
 literalStr =
     quoted '"' <|> quoted '\'' <|> quoted '`'
     <&> pack
     where
-        quoted q = char q *> many oneChar <* char q
-        oneChar = escapeSequence <|> satisfy (`notElem` ['\\', '"'])
+        quoted q = P.char q *> many oneChar <* P.char q
+        oneChar = escapeSequence <|> P.satisfy (`notElem` ['\\', '"'])
 
 parseMixin :: Parser FExpr
-parseMixin = keyword "mixin" *> noise *> openParen *> parseExpr <* closeParen
+parseMixin = keyword "mixin" *> noise *> P.parens parseExpr
 
 parseTerminal :: Parser FExpr
 parseTerminal =
-        ExprLiteralNum <$> scientific
+    (   ExprLiteralNum <$> P.integerOrDouble
     <|> ExprLiteralBool <$> literalBool
     <|> ExprLiteralStr <$> literalStr
     <|> ExprMixin <$> parseMixin
-    <|> ExprParens <$> (openParen *> parseExpr <* closeParen)
+    <|> ExprParens <$> P.parens parseExpr
     <|> ExprVar <$> parseIdent
     <&> FExpr
+    ) <* noise
     <?> "Terminal expression"
 
 parsePostfix :: Parser FExpr
@@ -140,21 +128,20 @@ parsePostfix =
         FExpr term <- parseTerminal
         postfix term
     where
-        argList = openParen *> parseExpr `sepBy` char ',' <* closeParen
+        argList = P.parens (parseExpr `sepBy` P.char ',')
         postfix e = do
             let ex = FExpr e
-            noise
             (ExprFuncall ex <$> (oper "!" *> (argList <|> (:[]) <$> parseTerminal)) <*> argList
              <|> ExprFuncall ex [] <$> argList
              >>= postfix)
-                <|> (char '.' *> parseIdent <&> ExprGetAttr ex >>= postfix)
+                <|> (P.char '.' *> parseIdent <&> ExprGetAttr ex >>= postfix)
                 <|> pure ex
 
 parseBlock :: Parser [FStmt]
 parseBlock =
-    char '{' *> noise *>
+    P.char '{' *> noise *>
     parseStmts <*
-    char '}'
+    P.char '}'
     <?> "Statement block"
 
 parseStmts :: Parser [FStmt]
@@ -164,7 +151,7 @@ parseStmt :: Parser FStmt
 parseStmt =
     StmtRet <$> (keyword "return" *> parseExpr <* semicolon)
     <|> StmtIf
-            <$> (keyword "if" *> openParen *> parseExpr <* closeParen)
+            <$> (keyword "if" *> P.parens parseExpr)
             <*> (noise *> parseStmt)
             <*> optional (noise *> keyword "else" *> parseStmt)
     <|> StmtBlock <$> parseBlock
@@ -186,11 +173,11 @@ parseFuncDecl =
             FuncDecl typ ident [] params block
         mkFuncDecl typ ident ctParams (Just rtParams) block =
             FuncDecl typ ident ctParams rtParams block
-        paramList = openParen *> (parseParam `sepBy` char ',') <* closeParen
+        paramList = P.parens (parseParam `sepBy` P.char ',')
 
-parsePragma :: ByteString -> Parser a -> Parser a
+parsePragma :: Text -> Parser a -> Parser a
 parsePragma pragma p =
-    keyword "pragma" *> openParen *> string pragma *> noise *> oper "," *> p <* closeParen
+    keyword "pragma" *> P.parens (keyword pragma *> noise *> oper "," *> p)
     <?> "Pragma"
 
 parseDecl :: Parser FDecl
@@ -205,9 +192,9 @@ parseModule =
     noise *>
     (Module
         <$> (keyword "module" *> noise *> parseIdent <* semicolon)
-        <*> many (noise *> parseDecl))
+        <*> many (P.try (noise *> parseDecl)))
     <* eof
     <?> "Module"
 
 eof :: Parser ()
-eof = noise <* endOfInput
+eof = noise <* P.eof

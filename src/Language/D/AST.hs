@@ -15,8 +15,8 @@ module Language.D.AST
     , FStmt
     ) where
 
-import Data.ByteString.Char8 (ByteString)
 import Data.Scientific (Scientific)
+import Data.Text (Text)
 
 data Type = TInt | TVoid | TBool | TString
     deriving Show
@@ -36,9 +36,9 @@ data InfixOp
     deriving Show
 
 data Expr expr
-    = ExprLiteralNum Scientific
+    = ExprLiteralNum (Either Integer Double)
     | ExprLiteralBool Bool
-    | ExprLiteralStr ByteString
+    | ExprLiteralStr Text
     | ExprMixin expr
     | ExprVar Ident
     | ExprGetAttr expr Ident

@@ -24,14 +24,15 @@ library
                     , Language.D.Collect
                     , Language.D.Parser
                     , Language.D.Semantic
-    build-depends:    attoparsec >=0.14
-                    , base >=4.15.1.0
+    build-depends:    base >=4.15.1.0
                     , bytestring >=0.9
                     , containers >=0.6
                     , generic-data >=0.9
                     , lens >=4
                     , mtl >=2
                     , scientific >=0.3
+                    , text
+                    , trifecta
     hs-source-dirs:   src
     default-language: Haskell2010
 
@@ -43,9 +44,9 @@ executable microdc-hs
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
-    build-depends:    attoparsec
-                    , base >=4.15.1.0
+    build-depends:    base >=4.15.1.0
                     , bytestring
                     , dlang
+                    , trifecta
     hs-source-dirs:   app
     default-language: Haskell2010

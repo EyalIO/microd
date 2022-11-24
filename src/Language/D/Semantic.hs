@@ -8,19 +8,20 @@ import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
-import Data.Attoparsec.ByteString.Char8 (parseOnly)
 import Data.ByteString.Char8 (ByteString)
 import Data.Foldable (traverse_)
 import Data.IORef
 import Data.Map
 import Data.Scientific
+import Data.Text.Encoding (encodeUtf8)
 import Generic.Data (Generic, Generically(..))
 import Language.D.AST
 import Language.D.Collect (collect, CollectEnv(..))
 import Language.D.Parser (Parser, parseExpr, parseStmts, parseDecl, eof)
+import Text.Trifecta (Result(..), parseByteString)
 
 data DRVal
-    = DNum Scientific
+    = DNum Double
     | DBool Bool
     | DString ByteString
 
@@ -115,7 +116,7 @@ withScope (ctParams, ctArgs) (rtParams, rtArgs) act =
 
 num2 ::
     MonadFail f =>
-    String -> (Scientific -> Scientific -> Scientific) ->
+    String -> (Double -> Double -> Double) ->
     DRVal -> DRVal -> f DRVal
 num2 _ f (DNum x) (DNum y) = DNum (f x y) & pure
 num2 msg _ _ _ = fail ("Cannot " ++ msg ++ " non-numbers)")
@@ -171,9 +172,9 @@ semanticExpr (FExpr e) =
                 Left val -> pure val
                 Right () -> fail "Missing 'return' statement"
         x -> showDVal x >>= fail . ("Calling a non-function: " ++)
-    ExprLiteralNum x -> RValue (DNum x) & pure
+    ExprLiteralNum x -> RValue (DNum (either fromInteger id x)) & pure
     ExprLiteralBool x -> RValue (DBool x) & pure
-    ExprLiteralStr x -> RValue (DString x) & pure
+    ExprLiteralStr x -> RValue (DString (encodeUtf8 x)) & pure
     ExprAssign var other ->
         semanticExpr var
         >>= \case
@@ -196,7 +197,8 @@ handleMixin parseStr semantic strVal =
     getDRVal "Cannot mixin " strVal
     >>= \case
     DString str ->
-        case parseOnly (parseStr <* eof) str of
-        Left err -> fail ("mixin parse error: " ++ show err ++ " source: " ++ show str)
-        Right expr -> semantic expr
+        -- todo: NOT mempty, but the location of the expr mixin!!
+        case parseByteString (parseStr <* eof) mempty str of
+        Failure err -> fail ("mixin parse error: " ++ show err ++ " source: " ++ show str)
+        Success expr -> semantic expr
     x -> fail ("Cannot mixin " ++ showDRVal x)
