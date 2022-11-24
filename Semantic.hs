@@ -14,7 +14,6 @@ import Data.ByteString.Char8 (ByteString)
 import Data.Foldable (traverse_)
 import Data.IORef
 import Data.Map
-import Data.Monoid
 import Data.Scientific
 import Parser (parseExpr)
 
@@ -71,7 +70,7 @@ semanticStmts [x] = semanticStmt x
 semanticStmts (x:xs) = semanticStmt x >> semanticStmts xs
 
 -- Monad for "fail"
-match :: Monad m => String -> (a -> b -> m c) -> [a] -> [b] -> m [c]
+match :: MonadFail m => String -> (a -> b -> m c) -> [a] -> [b] -> m [c]
 match sndName f =
     go
     where
@@ -80,22 +79,22 @@ match sndName f =
         go [] (_:_) = fail ("Too many " ++ sndName)
         go (_:_) [] = fail ("Too few " ++ sndName)
 
-getDRVal :: MonadIO m => String -> DVal -> m DRVal
+getDRVal :: (MonadFail m, MonadIO m) => String -> DVal -> m DRVal
 getDRVal msg =
     \case
     LValue ref -> liftIO (readIORef ref)
     RValue val -> pure val
     x -> showDVal x >>= fail . (msg ++)
 
-newParamFromArg :: MonadIO m => Param -> DVal -> m (Ident, IORef DRVal)
+newParamFromArg :: (MonadIO m, MonadFail m) => Param -> DVal -> m (Ident, IORef DRVal)
 newParamFromArg (Param _type name) val =
     getDRVal "Invalid parameter: " val >>= liftIO . newIORef <&> (,) name
 
 withScope ::
-    (MonadReader Scope f, MonadIO f) =>
+    (MonadReader Scope m, MonadIO m, MonadFail m) =>
     ([Param], [DVal]) -> ([Param], [DVal]) ->
-    f a ->
-    f a
+    m a ->
+    m a
 withScope (ctParams, ctArgs) (rtParams, rtArgs) act =
     do
         newCTScope <- m "compile" ctParams ctArgs
@@ -107,20 +106,20 @@ withScope (ctParams, ctArgs) (rtParams, rtArgs) act =
             <&> fromList
 
 num2 ::
-    Monad f =>
+    MonadFail f =>
     String -> (Scientific -> Scientific -> Scientific) ->
     DRVal -> DRVal -> f DRVal
 num2 _ f (DNum x) (DNum y) = DNum (f x y) & pure
 num2 msg _ _ _ = fail ("Cannot " ++ msg ++ " non-numbers)")
 
 str2 ::
-    Monad f =>
+    MonadFail f =>
     String -> (ByteString -> ByteString -> ByteString) ->
     DRVal -> DRVal -> f DRVal
 str2 _ f (DString x) (DString y) = DString (f x y) & pure
 str2 msg _ _ _ = fail ("Cannot " ++ msg ++ " non-strings)")
 
-funcOp :: Monad f => InfixOp -> DRVal -> DRVal -> f DRVal
+funcOp :: MonadFail f => InfixOp -> DRVal -> DRVal -> f DRVal
 funcOp InfixAdd = num2 "add" (+)
 funcOp InfixSub = num2 "subtract" (-)
 funcOp InfixMul = num2 "multiply" (*)
