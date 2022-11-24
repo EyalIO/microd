@@ -28,6 +28,7 @@ library
                     , base >=4.15.1.0
                     , bytestring >=0.9
                     , containers >=0.6
+                    , generic-data >=0.9
                     , lens >=4
                     , mtl >=2
                     , scientific >=0.3

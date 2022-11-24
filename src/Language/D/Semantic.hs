@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, LambdaCase, ScopedTypeVariables, FlexibleContexts #-}
+{-# LANGUAGE TemplateHaskell, LambdaCase, ScopedTypeVariables, FlexibleContexts, DerivingVia, DeriveGeneric, StandaloneDeriving #-}
 module Language.D.Semantic
     ( semantic
     ) where
@@ -14,6 +14,7 @@ import Data.Foldable (traverse_)
 import Data.IORef
 import Data.Map
 import Data.Scientific
+import Generic.Data (Generic, Generically(..))
 import Language.D.AST
 import Language.D.Collect (collect, CollectEnv(..))
 import Language.D.Parser (parseExpr)
@@ -33,6 +34,9 @@ data Scope = Scope
     { _scopeCTParams :: Map Ident (IORef DRVal)
     , _scopeRTParams :: Map Ident (IORef DRVal)
     }
+    deriving stock (Generic)
+    deriving Semigroup via Generically Scope
+
 makeLenses ''Scope
 
 type Semantic = ReaderT Scope (StateT (Map Ident FFuncDecl) IO)
@@ -98,9 +102,11 @@ withScope ::
     m a
 withScope (ctParams, ctArgs) (rtParams, rtArgs) act =
     do
-        newCTScope <- m "compile" ctParams ctArgs
-        newRTScope <- m "run"     rtParams rtArgs
-        local (\(Scope ct rt) -> Scope (newCTScope <> ct) (newRTScope <> rt)) act
+        newScope <-
+            Scope
+            <$> m "compile" ctParams ctArgs
+            <*> m "run"     rtParams rtArgs
+        local (newScope <>) act
     where
         m prefix ps as =
             match (prefix ++ "-time argument list") newParamFromArg ps as
