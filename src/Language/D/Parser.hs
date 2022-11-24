@@ -136,14 +136,14 @@ parsePostfix =
         FExpr term <- parseTerminal
         postfix term
     where
-        argList = openParen *> parseExpr `sepBy` (char ',') <* closeParen
+        argList = openParen *> parseExpr `sepBy` char ',' <* closeParen
         postfix e = do
             let ex = FExpr e
             noise
             (ExprFuncall ex <$> (oper "!" *> (argList <|> (:[]) <$> parseTerminal)) <*> argList
              <|> ExprFuncall ex [] <$> argList
              >>= postfix)
-                <|> (ExprGetAttr ex <$> (char '.' *> parseIdent) >>= postfix)
+                <|> (char '.' *> parseIdent <&> ExprGetAttr ex >>= postfix)
                 <|> pure ex
 
 parseBlock :: Parser [FStmt]
@@ -159,7 +159,7 @@ parseStmt =
     <|> StmtIf
             <$> (keyword "if" *> openParen *> parseExpr <* closeParen)
             <*> (noise *> parseStmt)
-            <*> (optional (noise *> keyword "else" *> parseStmt))
+            <*> optional (noise *> keyword "else" *> parseStmt)
     <|> StmtBlock <$> parseBlock
     <|> StmtExpr <$> parseExpr <* semicolon
     <?> "Statement"
