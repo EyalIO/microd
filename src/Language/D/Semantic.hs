@@ -1,9 +1,8 @@
-{-# OPTIONS -Wall #-}
 {-# LANGUAGE TemplateHaskell, LambdaCase, ScopedTypeVariables, FlexibleContexts #-}
-module Semantic (semantic) where
+module Language.D.Semantic
+    ( semantic
+    ) where
 
-import AST
-import Collect (collect, CollectEnv(..))
 import Control.Applicative
 import Control.Lens
 import Control.Monad.Except
@@ -15,7 +14,9 @@ import Data.Foldable (traverse_)
 import Data.IORef
 import Data.Map
 import Data.Scientific
-import Parser (parseExpr)
+import Language.D.AST
+import Language.D.Collect (collect, CollectEnv(..))
+import Language.D.Parser (parseExpr)
 
 data DRVal
     = DNum Scientific

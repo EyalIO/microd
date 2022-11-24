@@ -1,0 +1,50 @@
+cabal-version:      2.4
+name:               dlang
+version:            0.1.0.0
+
+synopsis:           A tiny DLang subset analyzer
+
+description:        Haskell infra to toy with DLang
+
+-- A URL where users can report bugs.
+-- bug-reports:
+
+-- The license under which the package is released.
+-- license:
+author:             Eyal Lotem
+maintainer:         eyal@weka.io
+
+-- A copyright notice.
+-- copyright:
+-- category:
+extra-source-files: CHANGELOG.md
+
+library
+    exposed-modules:  Language.D.AST
+                    , Language.D.Collect
+                    , Language.D.Parser
+                    , Language.D.Semantic
+    build-depends:    attoparsec >=0.14
+                    , base >=4.15.1.0
+                    , bytestring >=0.9
+                    , containers >=0.6
+                    , lens >=4
+                    , mtl >=2
+                    , scientific >=0.3
+    hs-source-dirs:   src
+    default-language: Haskell2010
+
+executable microdc-hs
+    main-is:          Main.hs
+
+    -- Modules included in this executable, other than Main.
+    -- other-modules:
+
+    -- LANGUAGE extensions used by modules in this package.
+    -- other-extensions:
+    build-depends:    attoparsec
+                    , base >=4.15.1.0
+                    , bytestring
+                    , dlang
+    hs-source-dirs:   app
+    default-language: Haskell2010

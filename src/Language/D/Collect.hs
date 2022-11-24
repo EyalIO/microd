@@ -1,16 +1,15 @@
-{-# OPTIONS -Wall #-}
 {-# LANGUAGE TemplateHaskell #-}
 -- | Collect names in a scope as a first pass prior to semantic analysis
 
-module Collect
+module Language.D.Collect
     ( collect
     , CollectEnv(..)
     ) where
 
-import AST
 import Control.Lens
 import Control.Monad.State
 import Data.Map
+import Language.D.AST
 
 data CollectEnv = CollectEnv
     { _collectFuncs :: Map Ident FFuncDecl

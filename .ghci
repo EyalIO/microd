@@ -1,2 +1,3 @@
 :set -odir=ghci-out
 :set -outputdir=ghci-out
+:set -isrc

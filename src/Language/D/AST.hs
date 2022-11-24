@@ -1,5 +1,4 @@
-{-# OPTIONS -Wall #-}
-module AST
+module Language.D.AST
     ( Type(..)
     , Ident
     , Param(..)

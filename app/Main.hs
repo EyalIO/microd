@@ -2,11 +2,11 @@
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
-import qualified Semantic
-import           Control.Lens
 import qualified Data.Attoparsec.ByteString.Char8 as Parser
 import qualified Data.ByteString.Char8 as BS8
-import           Parser (parseModule)
+import           Data.Functor ((<&>))
+import           Language.D.Parser (parseModule)
+import qualified Language.D.Semantic as Semantic
 import           System.Environment (getArgs)
 
 run :: FilePath -> IO ()

@@ -1,17 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS -Wall #-}
-module Parser
+module Language.D.Parser
     ( parseExpr
     , parseModule
     ) where
 
-import           AST
 import           Control.Applicative
 import           Control.Lens.Operators
 import qualified Data.Attoparsec.ByteString.Char8 as P
 import           Data.Attoparsec.ByteString.Char8 hiding (sepBy)
 import           Data.ByteString.Char8 (ByteString, pack)
 import           Data.Char (isAlphaNum)
+import           Language.D.AST
 
 guardChar :: String -> (Char -> Bool) -> Parser ()
 guardChar msg p = do
