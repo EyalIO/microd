@@ -24,4 +24,3 @@ collect (Module _ decls) =
 collectDecl :: FDecl -> State CollectEnv ()
 collectDecl (DeclFunc func)      = collectFuncs . at (funcIdent func) ?= func
 collectDecl (DeclPragmaMsg expr) = collectPragmaMsgs %= (expr:)
-

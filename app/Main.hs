@@ -12,8 +12,8 @@ run filePath =
     do
         moduleData <- BS8.readFile filePath
         case Parser.parseOnly parseModule moduleData of
-            Left err -> print err
-            Right module_ -> Semantic.semantic module_
+            Left err -> print $ "Parse error: " <> err
+            Right module_ -> Semantic.semanticModule module_
 
 main :: IO ()
 main = do

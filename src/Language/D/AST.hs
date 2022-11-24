@@ -53,6 +53,7 @@ data Stmt expr
     | StmtIf expr (Stmt expr) (Maybe (Stmt expr))
     | StmtExpr expr
     | StmtBlock [Stmt expr]
+    | StmtMixin expr
     --  | StmtDecl Decl
     deriving Show
 
@@ -67,6 +68,7 @@ data FuncDecl expr = FuncDecl
 data Decl expr
     = DeclFunc (FuncDecl expr)
     | DeclPragmaMsg expr
+    -- todo: | DeclMixin expr
     deriving Show
 
 data Module expr = Module

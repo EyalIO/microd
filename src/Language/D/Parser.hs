@@ -1,7 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Language.D.Parser
-    ( parseExpr
+    ( Parser
+    , parseStmts
+    , parseDecl
+    , parseExpr
     , parseModule
+    , eof
     ) where
 
 import           Control.Applicative
@@ -149,9 +153,12 @@ parsePostfix =
 parseBlock :: Parser [FStmt]
 parseBlock =
     char '{' *> noise *>
-    many (parseStmt <* noise) <*
+    parseStmts <*
     char '}'
     <?> "Statement block"
+
+parseStmts :: Parser [FStmt]
+parseStmts = many (parseStmt <* noise)
 
 parseStmt :: Parser FStmt
 parseStmt =
@@ -161,6 +168,7 @@ parseStmt =
             <*> (noise *> parseStmt)
             <*> optional (noise *> keyword "else" *> parseStmt)
     <|> StmtBlock <$> parseBlock
+    <|> StmtMixin <$> parseMixin <* semicolon
     <|> StmtExpr <$> parseExpr <* semicolon
     <?> "Statement"
 
@@ -189,6 +197,7 @@ parseDecl :: Parser FDecl
 parseDecl =
     DeclFunc <$> parseFuncDecl
     <|> (DeclPragmaMsg <$> parsePragma "msg" parseExpr <* semicolon)
+    -- <|> DeclMixin <$> parseMixin
     <?> "Declaration"
 
 parseModule :: Parser FModule
@@ -197,7 +206,8 @@ parseModule =
     (Module
         <$> (keyword "module" *> noise *> parseIdent <* semicolon)
         <*> many (noise *> parseDecl))
-    <* noise
-    <* endOfInput
+    <* eof
     <?> "Module"
 
+eof :: Parser ()
+eof = noise <* endOfInput

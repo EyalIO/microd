@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell, LambdaCase, ScopedTypeVariables, FlexibleContexts, DerivingVia, DeriveGeneric, StandaloneDeriving #-}
 module Language.D.Semantic
-    ( semantic
+    ( semanticModule
     ) where
 
 import Control.Applicative
@@ -17,7 +17,7 @@ import Data.Scientific
 import Generic.Data (Generic, Generically(..))
 import Language.D.AST
 import Language.D.Collect (collect, CollectEnv(..))
-import Language.D.Parser (parseExpr)
+import Language.D.Parser (Parser, parseExpr, parseStmts, parseDecl, eof)
 
 data DRVal
     = DNum Scientific
@@ -52,8 +52,8 @@ showDVal (LValue ref) = liftIO (readIORef ref) <&> showDRVal
 showDVal (Func f) = pure (show f)
 showDVal Void = pure "void"
 
-semantic :: FModule -> IO ()
-semantic module_ =
+semanticModule :: FModule -> IO ()
+semanticModule module_ =
     do
         let CollectEnv funcs pragmaMsgs = collect module_
         _ <- mapM_ (\expr -> semanticExpr expr >>= showDVal >>= liftIO . putStrLn) (reverse pragmaMsgs)
@@ -68,6 +68,7 @@ semanticStmt (StmtIf cond t mf) = do
     if b then semanticStmt t else traverse_ semanticStmt mf
 semanticStmt (StmtRet val) = lift (semanticExpr val) >>= throwError
 semanticStmt (StmtBlock stmts) = semanticStmts stmts
+semanticStmt (StmtMixin strExpr) = lift (semanticExpr strExpr) >>= handleMixin parseStmts semanticStmts
 
 semanticStmts :: [FStmt] -> ExceptT DVal Semantic ()
 semanticStmts [] = pure ()
@@ -188,11 +189,14 @@ semanticExpr (FExpr e) =
     ExprParens var -> semanticExpr var
     ExprInfix l iop r ->
         join $ semanticInfix iop <$> semanticExpr l <*> semanticExpr r
-    ExprMixin strExpr ->
-        semanticExpr strExpr >>= getDRVal "Cannot mixin "
-        >>= \case
-        DString str ->
-            case parseOnly parseExpr str of
-            Left err -> fail ("mixin parse error: " ++ show err ++ " source: " ++ show str)
-            Right expr -> semanticExpr expr
-        x -> fail ("Cannot mixin " ++ showDRVal x)
+    ExprMixin strExpr -> semanticExpr strExpr >>= handleMixin parseExpr semanticExpr
+
+handleMixin :: (MonadFail m, MonadIO m) => Parser a -> (a -> m b) -> DVal -> m b
+handleMixin parseStr semantic strVal =
+    getDRVal "Cannot mixin " strVal
+    >>= \case
+    DString str ->
+        case parseOnly (parseStr <* eof) str of
+        Left err -> fail ("mixin parse error: " ++ show err ++ " source: " ++ show str)
+        Right expr -> semantic expr
+    x -> fail ("Cannot mixin " ++ showDRVal x)
