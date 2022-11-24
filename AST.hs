@@ -1,5 +1,20 @@
 {-# OPTIONS -Wall #-}
-module AST where
+module AST
+    ( Type(..)
+    , Ident
+    , Param(..)
+    , InfixOp(..)
+    , Expr(..)
+    , Stmt(..)
+    , FuncDecl(..)
+    , Decl(..)
+    , Module(..)
+    , FExpr(..)
+    , FDecl
+    , FFuncDecl
+    , FModule
+    , FStmt
+    ) where
 
 import Data.ByteString.Char8 (ByteString)
 import Data.Scientific (Scientific)

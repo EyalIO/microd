@@ -1,6 +1,6 @@
 {-# OPTIONS -Wall #-}
 {-# LANGUAGE TemplateHaskell, LambdaCase, ScopedTypeVariables, FlexibleContexts #-}
-module Semantic where
+module Semantic (semantic) where
 
 import AST
 import Collect (collect, CollectEnv(..))

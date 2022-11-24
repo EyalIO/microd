@@ -2,7 +2,10 @@
 {-# LANGUAGE TemplateHaskell #-}
 -- | Collect names in a scope as a first pass prior to semantic analysis
 
-module Collect where
+module Collect
+    ( collect
+    , CollectEnv(..)
+    ) where
 
 import AST
 import Control.Lens

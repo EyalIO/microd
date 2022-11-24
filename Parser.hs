@@ -1,6 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS -Wall #-}
-module Parser where
+module Parser
+    ( parseExpr
+    , parseModule
+    ) where
 
 import           AST
 import           Control.Applicative
@@ -29,9 +32,6 @@ parseType =
     <|> (TVoid <$ keyword "void")
     <|> (TBool <$ keyword "bool")
     <|> (TString <$ keyword "string")
-
-inRange :: Ord a => a -> a -> a -> Bool
-inRange low hi x = low <= x && x <= hi
 
 parseIdent :: Parser Ident
 parseIdent =
