@@ -74,9 +74,9 @@ semanticStmts [] = pure ()
 semanticStmts [x] = semanticStmt x
 semanticStmts (x:xs) = semanticStmt x >> semanticStmts xs
 
--- Monad for "fail"
-match :: MonadFail m => String -> (a -> b -> m c) -> [a] -> [b] -> m [c]
-match sndName f =
+-- | like zipWith but use fail if lengths mismatch
+zipWithF :: MonadFail m => String -> (a -> b -> m c) -> [a] -> [b] -> m [c]
+zipWithF sndName f =
     go
     where
         go [] [] = pure []
@@ -109,7 +109,7 @@ withScope (ctParams, ctArgs) (rtParams, rtArgs) act =
         local (newScope <>) act
     where
         m prefix ps as =
-            match (prefix ++ "-time argument list") newParamFromArg ps as
+            zipWithF (prefix ++ "-time argument list") newParamFromArg ps as
             <&> fromList
 
 num2 ::
